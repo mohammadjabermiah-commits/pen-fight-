@@ -1,0 +1,1628 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pen Fight - Nostalgic Pen War Game</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700;800&family=Poppins:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase App & Auth SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { 
+            getAuth, 
+            signInWithPopup, 
+            GoogleAuthProvider, 
+            FacebookAuthProvider, 
+            signInAnonymously, 
+            onAuthStateChanged, 
+            signOut 
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+
+        // Global Firebase Configuration fallback
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+            apiKey: "AIzaSyDemoConfigForPenFightKeyOnly",
+            authDomain: "pen-fight-game.firebaseapp.com",
+            projectId: "pen-fight-game",
+            storageBucket: "pen-fight-game.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:1234567890:web:abcdef123456"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+
+        // Expose Firebase Auth actions globally
+        window.fbLoginGoogle = async function() {
+            try {
+                const provider = new GoogleAuthProvider();
+                await signInWithPopup(auth, provider);
+            } catch(err) {
+                console.warn("Google Sign-In fallback to Guest:", err);
+                guestLogin("Google Player");
+            }
+        };
+
+        window.fbLoginFacebook = async function() {
+            try {
+                const provider = new FacebookAuthProvider();
+                await signInWithPopup(auth, provider);
+            } catch(err) {
+                console.warn("Facebook Sign-In fallback to Guest:", err);
+                guestLogin("Facebook Player");
+            }
+        };
+
+        window.fbLoginGuest = function() {
+            signInAnonymously(auth).catch(() => {
+                guestLogin("Guest Student");
+            });
+        };
+
+        window.fbLogout = function() {
+            signOut(auth).then(() => {
+                localStorage.removeItem('pen_fight_user');
+                location.reload();
+            });
+        };
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                window.currentUser = {
+                    uid: user.uid,
+                    displayName: user.displayName || 'Pen Fighter',
+                    photoURL: user.photoURL || 'https://placehold.co/100x100/d97706/ffffff?text=Pen',
+                    isAnonymous: user.isAnonymous
+                };
+                if (window.onAuthSuccess) window.onAuthSuccess();
+            }
+        });
+    </script>
+
+    <style>
+        * {
+            font-family: 'Poppins', 'Hind Siliguri', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        body {
+            background-color: #0b0705;
+            color: #f3f4f6;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        canvas {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.95);
+            border-radius: 12px;
+            cursor: crosshair;
+        }
+
+        .modal-enter {
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        @keyframes popIn {
+            0% { transform: scale(0.85); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d97706;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body class="flex flex-col h-screen w-screen overflow-hidden">
+
+    <!-- TOP HUD NAV BAR -->
+    <div class="absolute top-0 left-0 w-full z-20 px-3 py-2 sm:px-6 sm:py-3 flex justify-between items-center bg-slate-950/85 backdrop-blur-md border-b border-amber-900/40">
+        <!-- Logo & Player Stats Header -->
+        <div class="flex items-center gap-3">
+            <div class="bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black px-3 py-1 rounded-xl text-base sm:text-lg flex items-center gap-2 shadow-lg">
+                <i class="fa-solid fa-pen-nib text-lg"></i>
+                <span class="tracking-wide">Pen Fight</span>
+            </div>
+
+            <!-- Profile Badge -->
+            <div onclick="openProfileModal()" class="cursor-pointer flex items-center gap-2 bg-slate-900/90 hover:bg-slate-800 border border-amber-700/50 px-2.5 py-1 rounded-full transition shadow-inner">
+                <img id="hud-avatar" src="https://placehold.co/100x100/d97706/ffffff?text=Pen" class="w-6 h-6 rounded-full border border-amber-400 object-cover" alt="Avatar">
+                <span id="hud-name" class="text-xs font-bold text-amber-200 max-w-[90px] sm:max-w-[130px] truncate">Guest</span>
+                <span class="text-slate-600">|</span>
+                <div class="flex items-center gap-1 text-amber-400 font-extrabold text-xs">
+                    <i class="fa-solid fa-coins"></i>
+                    <span id="hud-coins">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scoreboard & Turn Timer -->
+        <div id="hud-score" class="flex items-center gap-3 sm:gap-6 bg-slate-900/90 px-4 py-1 rounded-full border border-amber-600/40 shadow-2xl">
+            <div id="p1-score-box" class="flex items-center gap-2 transition-all">
+                <span id="p1-name-tag" class="text-xs sm:text-sm font-bold text-red-400">P1</span>
+                <span id="p1-score" class="bg-red-950 text-red-200 px-2.5 py-0.5 rounded-full text-xs sm:text-sm font-black border border-red-700">0</span>
+            </div>
+
+            <div class="flex flex-col items-center justify-center">
+                <span id="turn-timer" class="text-amber-400 font-black text-sm sm:text-base leading-tight">15</span>
+                <span id="lang-sec" class="text-[9px] text-amber-200/60 uppercase -mt-1">SEC</span>
+            </div>
+
+            <div id="p2-score-box" class="flex items-center gap-2 transition-all opacity-50">
+                <span id="p2-score" class="bg-blue-950 text-blue-200 px-2.5 py-0.5 rounded-full text-xs sm:text-sm font-black border border-blue-700">0</span>
+                <span id="p2-name-tag" class="text-xs sm:text-sm font-bold text-blue-400">P2</span>
+            </div>
+        </div>
+
+        <!-- Language Toggle & Controls -->
+        <div class="flex items-center gap-2">
+            <!-- Language Toggle Button -->
+            <button onclick="toggleLanguage()" class="px-2.5 py-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-extrabold text-xs sm:text-sm transition flex items-center gap-1">
+                <i class="fa-solid fa-language text-base"></i>
+                <span id="lang-btn-text">ENG</span>
+            </button>
+
+            <!-- Sound Toggle Button -->
+            <button id="sound-btn" onclick="toggleSound()" class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 flex items-center justify-center border border-amber-800/40 transition">
+                <i class="fa-solid fa-volume-high text-base"></i>
+            </button>
+
+            <!-- Menu Button -->
+            <button onclick="openMenu()" class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-lg transition">
+                <i class="fa-solid fa-bars text-lg"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN GAME CANVAS CONTAINER -->
+    <div id="game-container" class="flex-1 w-full h-full pt-14 pb-12 px-2 flex items-center justify-center">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <!-- BOTTOM TURN BANNER -->
+    <div id="turn-banner" class="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 bg-slate-950/95 border border-amber-500/50 text-amber-200 px-5 py-1.5 rounded-full shadow-2xl flex items-center gap-3 backdrop-blur-md">
+        <div id="turn-indicator-dot" class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+        <span id="turn-text" class="text-xs sm:text-sm font-bold tracking-wide">Drag pen back to aim and shoot</span>
+    </div>
+
+    <!-- ==================== AUTHENTICATION LOGIN MODAL ==================== -->
+    <div id="auth-modal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-900 via-slate-950 to-amber-950 border-2 border-amber-600/60 rounded-2xl max-w-sm w-full p-6 shadow-2xl modal-enter text-center">
+            
+            <div class="w-16 h-16 bg-gradient-to-br from-amber-400 to-amber-600 text-slate-950 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-amber-300 shadow-xl">
+                <i class="fa-solid fa-pen-nib text-3xl"></i>
+            </div>
+            <h1 class="text-2xl font-black text-amber-400">Pen Fight</h1>
+            <p id="auth-sub" class="text-xs text-amber-200/70 mb-6">Play Nostalgic Pen War Online or Offline</p>
+
+            <div class="space-y-3">
+                <button onclick="window.fbLoginGoogle()" class="w-full py-3 bg-white hover:bg-slate-100 text-slate-800 font-bold text-sm rounded-xl shadow-lg flex items-center justify-center gap-3 transition">
+                    <i class="fa-brands fa-google text-red-500 text-lg"></i>
+                    <span id="txt-login-google">Sign in with Google</span>
+                </button>
+
+                <button onclick="window.fbLoginFacebook()" class="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl shadow-lg flex items-center justify-center gap-3 transition">
+                    <i class="fa-brands fa-facebook text-white text-lg"></i>
+                    <span id="txt-login-fb">Sign in with Facebook</span>
+                </button>
+
+                <div class="relative my-2">
+                    <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-slate-800"></div></div>
+                    <div class="relative flex justify-center text-[10px] uppercase"><span class="bg-slate-950 px-2 text-slate-500">OR</span></div>
+                </div>
+
+                <button onclick="window.fbLoginGuest()" class="w-full py-3 bg-slate-800 hover:bg-slate-700 text-amber-200 font-bold text-sm rounded-xl border border-amber-800/40 flex items-center justify-center gap-2 transition">
+                    <i class="fa-solid fa-user-ninja"></i>
+                    <span id="txt-login-guest">Play as Guest</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MAIN MENU MODAL ==================== -->
+    <div id="menu-modal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-900 via-slate-950 to-amber-950 border-2 border-amber-600/50 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl modal-enter max-h-[90vh] overflow-y-auto">
+            
+            <div class="text-center mb-5">
+                <h2 id="menu-title" class="text-2xl sm:text-3xl font-black text-amber-400">Pen Fight Arena</h2>
+                <p id="menu-sub" class="text-xs text-amber-200/70 mt-0.5">Select Game Mode & Bench Arena</p>
+            </div>
+
+            <!-- Game Modes -->
+            <div class="grid grid-cols-2 gap-2.5 mb-4">
+                <button onclick="selectMode('pvp')" id="mode-btn-pvp" class="mode-select-btn p-3 bg-amber-500/20 border-2 border-amber-500 rounded-xl text-left flex flex-col gap-1 transition">
+                    <div class="flex items-center gap-2 text-amber-400 font-bold text-sm">
+                        <i class="fa-solid fa-users text-lg"></i>
+                        <span id="txt-mode-pvp">Pass & Play</span>
+                    </div>
+                    <span id="txt-mode-pvp-sub" class="text-[10px] text-amber-200/70">2 Players on 1 Device</span>
+                </button>
+
+                <button onclick="selectMode('ai')" id="mode-btn-ai" class="mode-select-btn p-3 bg-slate-900 border border-slate-800 rounded-xl text-left flex flex-col gap-1 hover:border-amber-700 transition">
+                    <div class="flex items-center gap-2 text-slate-300 font-bold text-sm">
+                        <i class="fa-solid fa-robot text-lg text-amber-400"></i>
+                        <span id="txt-mode-ai">VS Computer</span>
+                    </div>
+                    <span id="txt-mode-ai-sub" class="text-[10px] text-slate-400">Smart AI Opponent</span>
+                </button>
+
+                <button onclick="selectMode('online')" id="mode-btn-online" class="mode-select-btn p-3 bg-slate-900 border border-slate-800 rounded-xl text-left flex flex-col gap-1 hover:border-amber-700 transition">
+                    <div class="flex items-center gap-2 text-slate-300 font-bold text-sm">
+                        <i class="fa-solid fa-globe text-lg text-sky-400"></i>
+                        <span id="txt-mode-online">Online Match</span>
+                    </div>
+                    <span id="txt-mode-online-sub" class="text-[10px] text-slate-400">Matchmaking Room</span>
+                </button>
+
+                <button onclick="selectMode('target')" id="mode-btn-target" class="mode-select-btn p-3 bg-slate-900 border border-slate-800 rounded-xl text-left flex flex-col gap-1 hover:border-amber-700 transition">
+                    <div class="flex items-center gap-2 text-slate-300 font-bold text-sm">
+                        <i class="fa-solid fa-bullseye text-lg text-emerald-400"></i>
+                        <span id="txt-mode-target">Coin Challenge</span>
+                    </div>
+                    <span id="txt-mode-target-sub" class="text-[10px] text-slate-400">Target Practice</span>
+                </button>
+            </div>
+
+            <!-- AI Difficulty Selection -->
+            <div id="ai-diff-container" class="hidden mb-4 bg-slate-950/70 p-3 rounded-xl border border-amber-900/40">
+                <div id="txt-ai-diff" class="text-xs text-amber-400 font-bold mb-2">AI Difficulty:</div>
+                <div class="grid grid-cols-3 gap-2">
+                    <button onclick="setAIDifficulty('easy')" id="diff-easy" class="diff-btn py-1.5 rounded-lg bg-amber-500/20 border border-amber-500 text-xs font-bold text-amber-200">Easy</button>
+                    <button onclick="setAIDifficulty('medium')" id="diff-medium" class="diff-btn py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-bold text-slate-400">Medium</button>
+                    <button onclick="setAIDifficulty('hard')" id="diff-hard" class="diff-btn py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs font-bold text-slate-400">Hard</button>
+                </div>
+            </div>
+
+            <!-- Arenas Selection -->
+            <div class="mb-5 bg-slate-950/70 p-3 rounded-xl border border-amber-900/40">
+                <div id="txt-arena-title" class="text-xs text-amber-400 font-bold mb-2 uppercase tracking-wider">Select Arena / Table:</div>
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="selectArena('bench')" id="arena-btn-bench" class="arena-select-btn p-2 rounded-lg border-2 border-amber-500 bg-amber-500/20 text-xs font-bold text-amber-200 flex items-center gap-2">
+                        <i class="fa-solid fa-chair text-amber-400"></i>
+                        <span id="txt-arena-bench">Wooden Bench</span>
+                    </button>
+                    <button onclick="selectArena('exam')" id="arena-btn-exam" class="arena-select-btn p-2 rounded-lg border border-slate-800 bg-slate-900 text-xs font-bold text-slate-400 flex items-center gap-2">
+                        <i class="fa-solid fa-file-signature text-amber-400"></i>
+                        <span id="txt-arena-exam">Exam Desk</span>
+                    </button>
+                    <button onclick="selectArena('teacher')" id="arena-btn-teacher" class="arena-select-btn p-2 rounded-lg border border-slate-800 bg-slate-900 text-xs font-bold text-slate-400 flex items-center gap-2">
+                        <i class="fa-solid fa-briefcase text-amber-400"></i>
+                        <span id="txt-arena-teacher">Teacher Desk</span>
+                    </button>
+                    <button onclick="selectArena('cement')" id="arena-btn-cement" class="arena-select-btn p-2 rounded-lg border border-slate-800 bg-slate-900 text-xs font-bold text-slate-400 flex items-center gap-2">
+                        <i class="fa-solid fa-cubes text-amber-400"></i>
+                        <span id="txt-arena-cement">Cement Bench</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bottom Navigation -->
+            <div class="grid grid-cols-2 gap-2.5 mb-4">
+                <button onclick="openShopModal()" class="py-2.5 bg-gradient-to-r from-purple-700 to-indigo-700 hover:from-purple-600 hover:to-indigo-600 text-white font-extrabold text-sm rounded-xl border border-purple-500/40 flex items-center justify-center gap-2 shadow-lg">
+                    <i class="fa-solid fa-store"></i>
+                    <span id="txt-shop-btn">Pen Shop & Upgrades</span>
+                </button>
+                <button onclick="openProfileModal()" class="py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-200 font-extrabold text-sm rounded-xl border border-amber-700/40 flex items-center justify-center gap-2 shadow-lg">
+                    <i class="fa-solid fa-user-gear"></i>
+                    <span id="txt-profile-btn">Profile Stats</span>
+                </button>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="startGame()" class="flex-1 py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-lg rounded-xl shadow-2xl transition transform active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-play"></i>
+                    <span id="txt-start-btn">Start Game</span>
+                </button>
+                <button id="close-menu-btn" onclick="closeMenu()" class="hidden py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl border border-slate-700">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== REALISTIC PEN SHOP MODAL ==================== -->
+    <div id="shop-modal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-900 to-slate-950 border-2 border-purple-500/60 rounded-2xl max-w-lg w-full p-5 sm:p-6 shadow-2xl modal-enter max-h-[90vh] overflow-y-auto">
+            
+            <div class="flex justify-between items-center mb-4 border-b border-purple-900/50 pb-3">
+                <div class="flex items-center gap-2 text-purple-400 font-black text-xl">
+                    <i class="fa-solid fa-shop"></i>
+                    <span id="txt-shop-title">Pen Collection & Upgrades</span>
+                </div>
+                <button onclick="closeShopModal()" class="text-slate-400 hover:text-white text-xl px-2">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Realistic Pens Catalog -->
+            <div class="space-y-3 mb-5">
+                <!-- Econo Ballpoint -->
+                <div id="shop-item-econo" class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center border border-blue-500/30 font-black text-lg text-blue-400">
+                            🖊️
+                        </div>
+                        <div>
+                            <h4 id="txt-pen-econo-name" class="font-extrabold text-sm text-slate-200">Classic Ball Pen</h4>
+                            <p id="txt-pen-econo-desc" class="text-[10px] text-slate-400">Light Weight • Flexible Friction</p>
+                        </div>
+                    </div>
+                    <button onclick="buyOrSelectPen('econo')" id="shop-btn-econo" class="px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-extrabold text-xs">
+                        Selected
+                    </button>
+                </div>
+
+                <!-- Matador Gel Pen -->
+                <div id="shop-item-matador" class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-10 rounded-lg bg-red-500/10 flex items-center justify-center border border-red-500/30 font-black text-lg text-red-400">
+                            ✒️
+                        </div>
+                        <div>
+                            <h4 id="txt-pen-matador-name" class="font-extrabold text-sm text-slate-200">Grip Gel Pen</h4>
+                            <p id="txt-pen-matador-desc" class="text-[10px] text-slate-400">Rubber Grip • Balanced Momentum</p>
+                        </div>
+                    </div>
+                    <button onclick="buyOrSelectPen('matador')" id="shop-btn-matador" class="px-3.5 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500 text-amber-300 font-extrabold text-xs">
+                        Select
+                    </button>
+                </div>
+
+                <!-- Parker Fountain Pen -->
+                <div id="shop-item-parker" class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center border border-purple-500/30 font-black text-lg text-purple-400">
+                            🖋️
+                        </div>
+                        <div>
+                            <h4 id="txt-pen-parker-name" class="font-extrabold text-sm text-slate-200">Heavy Fountain Pen</h4>
+                            <p id="txt-pen-parker-desc" class="text-[10px] text-slate-400">Brass Nib • Massive Push Force</p>
+                        </div>
+                    </div>
+                    <button onclick="buyOrSelectPen('parker')" id="shop-btn-parker" class="px-3.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-extrabold text-xs flex items-center gap-1">
+                        <i class="fa-solid fa-coins text-amber-400"></i> 250
+                    </button>
+                </div>
+
+                <!-- Marker Pen -->
+                <div id="shop-item-marker" class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center border border-emerald-500/30 font-black text-lg text-emerald-400">
+                            🖍️
+                        </div>
+                        <div>
+                            <h4 id="txt-pen-marker-name" class="font-extrabold text-sm text-slate-200">High-Lighter Marker</h4>
+                            <p id="txt-pen-marker-desc" class="text-[10px] text-slate-400">Thick Body • High Surface Friction</p>
+                        </div>
+                    </div>
+                    <button onclick="buyOrSelectPen('marker')" id="shop-btn-marker" class="px-3.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-extrabold text-xs flex items-center gap-1">
+                        <i class="fa-solid fa-coins text-amber-400"></i> 400
+                    </button>
+                </div>
+
+                <!-- Gold Executive Pen -->
+                <div id="shop-item-gold" class="p-3 bg-slate-900 rounded-xl border border-slate-800 flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center border border-amber-500/30 font-black text-lg text-amber-400">
+                            👑
+                        </div>
+                        <div>
+                            <h4 id="txt-pen-gold-name" class="font-extrabold text-sm text-slate-200">Deluxe Gold Executive</h4>
+                            <p id="txt-pen-gold-desc" class="text-[10px] text-slate-400">Pure Metal Body • Maximum Knockout</p>
+                        </div>
+                    </div>
+                    <button onclick="buyOrSelectPen('gold')" id="shop-btn-gold" class="px-3.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-extrabold text-xs flex items-center gap-1">
+                        <i class="fa-solid fa-coins text-amber-400"></i> 750
+                    </button>
+                </div>
+            </div>
+
+            <!-- Pen Color Options -->
+            <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 mb-4">
+                <div id="txt-custom-color" class="text-xs text-amber-400 font-bold mb-2">Custom Pen Color:</div>
+                <div class="flex items-center gap-2 justify-between">
+                    <button onclick="setPenColor('#ef4444')" class="w-8 h-8 rounded-full bg-red-500 border-2 border-white/80 hover:scale-110 transition"></button>
+                    <button onclick="setPenColor('#3b82f6')" class="w-8 h-8 rounded-full bg-blue-500 border-2 border-white/80 hover:scale-110 transition"></button>
+                    <button onclick="setPenColor('#10b981')" class="w-8 h-8 rounded-full bg-emerald-500 border-2 border-white/80 hover:scale-110 transition"></button>
+                    <button onclick="setPenColor('#8b5cf6')" class="w-8 h-8 rounded-full bg-purple-500 border-2 border-white/80 hover:scale-110 transition"></button>
+                    <button onclick="setPenColor('#eab308')" class="w-8 h-8 rounded-full bg-yellow-500 border-2 border-white/80 hover:scale-110 transition"></button>
+                    <button onclick="setPenColor('#1e293b')" class="w-8 h-8 rounded-full bg-slate-800 border-2 border-white/80 hover:scale-110 transition"></button>
+                </div>
+            </div>
+
+            <!-- Power Stat Upgrades -->
+            <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                <div id="txt-power-upgrades" class="text-xs text-amber-400 font-bold">Pen Power Upgrades:</div>
+                
+                <div class="flex items-center justify-between text-xs">
+                    <span id="txt-upg-mass" class="text-slate-300">Push Force / Mass:</span>
+                    <button onclick="upgradeStat('mass')" class="px-2.5 py-1 bg-amber-500/20 border border-amber-500 text-amber-300 rounded font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-circle-up"></i> Lvl <span id="lvl-mass">1</span> (100 🪙)
+                    </button>
+                </div>
+
+                <div class="flex items-center justify-between text-xs">
+                    <span id="txt-upg-grip" class="text-slate-300">Grip & Friction:</span>
+                    <button onclick="upgradeStat('grip')" class="px-2.5 py-1 bg-amber-500/20 border border-amber-500 text-amber-300 rounded font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-circle-up"></i> Lvl <span id="lvl-grip">1</span> (100 🪙)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== USER PROFILE & STATS MODAL ==================== -->
+    <div id="profile-modal" class="hidden fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-900 to-amber-950 border-2 border-amber-500/60 rounded-2xl max-w-md w-full p-6 shadow-2xl modal-enter text-center">
+            
+            <img id="prof-avatar" src="https://placehold.co/100x100/d97706/ffffff?text=Pen" class="w-16 h-16 rounded-full border-2 border-amber-400 mx-auto mb-2 object-cover shadow-lg" alt="Avatar">
+            
+            <h2 id="profile-name" class="text-2xl font-black text-amber-400">Player Profile</h2>
+            <p id="profile-rank" class="text-xs text-sky-400 font-bold mb-4">Rank: Bench Champion (Lvl 1)</p>
+
+            <div class="grid grid-cols-2 gap-3 text-left mb-6">
+                <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span id="txt-prof-matches" class="text-[10px] text-slate-400 uppercase font-bold">Total Matches</span>
+                    <p id="stat-matches" class="text-xl font-black text-amber-300">0</p>
+                </div>
+                <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span id="txt-prof-wins" class="text-[10px] text-slate-400 uppercase font-bold">Wins</span>
+                    <p id="stat-wins" class="text-xl font-black text-emerald-400">0</p>
+                </div>
+                <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span id="txt-prof-losses" class="text-[10px] text-slate-400 uppercase font-bold">Losses</span>
+                    <p id="stat-losses" class="text-xl font-black text-red-400">0</p>
+                </div>
+                <div class="bg-slate-950/80 p-3 rounded-xl border border-slate-800">
+                    <span id="txt-prof-winrate" class="text-[10px] text-slate-400 uppercase font-bold">Win Rate</span>
+                    <p id="stat-winrate" class="text-xl font-black text-sky-300">0%</p>
+                </div>
+            </div>
+
+            <div class="flex gap-2">
+                <button onclick="window.fbLogout()" class="flex-1 py-2.5 bg-red-950 hover:bg-red-900 text-red-200 font-bold text-xs rounded-xl border border-red-700">
+                    Logout
+                </button>
+                <button onclick="closeProfileModal()" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs rounded-xl border border-slate-600">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== POST-MATCH NEXT STEP FLOW MODAL ==================== -->
+    <div id="victory-modal" class="hidden fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-gradient-to-b from-slate-900 via-amber-950 to-slate-900 border-2 border-amber-500 rounded-2xl max-w-sm w-full p-6 shadow-2xl modal-enter text-center">
+            
+            <div id="victory-icon" class="w-20 h-20 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center mx-auto mb-3 border border-amber-400/50 shadow-lg text-4xl animate-bounce">
+                🏆
+            </div>
+            <h2 id="victory-title" class="text-2xl font-black text-amber-400 mb-1">MATCH COMPLETED</h2>
+            <p id="victory-msg" class="text-sm text-amber-100 font-semibold mb-4">Player 1 knocked out the opponent!</p>
+
+            <!-- Rewards Banner -->
+            <div class="bg-slate-950/80 p-3 rounded-xl border border-amber-900/50 flex items-center justify-around mb-5">
+                <div class="flex items-center gap-2 text-amber-400 font-extrabold text-sm">
+                    <i class="fa-solid fa-coins"></i>
+                    <span id="reward-coins">+50 Coins</span>
+                </div>
+                <div class="flex items-center gap-2 text-sky-400 font-extrabold text-sm">
+                    <i class="fa-solid fa-star"></i>
+                    <span id="reward-xp">+100 XP</span>
+                </div>
+            </div>
+
+            <!-- Action Buttons for Next Flow -->
+            <div class="space-y-2.5">
+                <button onclick="resetMatch()" class="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-base rounded-xl shadow-lg transition transform active:scale-95 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-rotate-right"></i>
+                    <span id="txt-post-next">Next Match / Rematch</span>
+                </button>
+
+                <button onclick="openShopFromPostMatch()" class="w-full py-2.5 bg-purple-900/60 hover:bg-purple-800 text-purple-200 font-extrabold text-sm rounded-xl border border-purple-500/40 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-shop"></i>
+                    <span id="txt-post-shop">Go to Pen Shop</span>
+                </button>
+
+                <button onclick="openMenuFromPostMatch()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-amber-200 font-bold text-sm rounded-xl border border-amber-800/40">
+                    <span id="txt-post-menu">Main Menu</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- GAME SCRIPT ENGINE -->
+    <script>
+        /* --- LANGUAGE TRANSLATIONS --- */
+        let currentLang = 'bn'; // 'en' or 'bn'
+
+        const langData = {
+            en: {
+                sec: 'SEC',
+                turnP1: 'Your Turn: Drag pen back to shoot',
+                turnP2: 'Player 2 Turn: Drag pen back to shoot',
+                turnAI: 'Opponent is aiming...',
+                loginGoogle: 'Sign in with Google',
+                loginFB: 'Sign in with Facebook',
+                loginGuest: 'Play as Guest',
+                menuTitle: 'Pen Fight Arena',
+                menuSub: 'Select Game Mode & Bench Arena',
+                modePvp: 'Pass & Play',
+                modePvpSub: '2 Players on 1 Device',
+                modeAI: 'VS Computer',
+                modeAISub: 'Smart AI Opponent',
+                modeOnline: 'Online Match',
+                modeOnlineSub: 'Matchmaking Room',
+                modeTarget: 'Coin Challenge',
+                modeTargetSub: 'Target Practice',
+                aiDiff: 'AI Difficulty:',
+                arenaTitle: 'Select Arena / Table:',
+                arenaBench: 'Wooden Bench',
+                arenaExam: 'Exam Desk',
+                arenaTeacher: 'Teacher Desk',
+                arenaCement: 'Cement Bench',
+                shopBtn: 'Pen Shop & Upgrades',
+                profileBtn: 'Profile Stats',
+                startBtn: 'Start Game',
+                shopTitle: 'Pen Collection & Upgrades',
+                penEcono: 'Classic Ball Pen',
+                penEconoDesc: 'Light Weight • Flexible Friction',
+                penMatador: 'Grip Gel Pen',
+                penMatadorDesc: 'Rubber Grip • Balanced Momentum',
+                penParker: 'Heavy Fountain Pen',
+                penParkerDesc: 'Brass Nib • Massive Push Force',
+                penMarker: 'High-Lighter Marker',
+                penMarkerDesc: 'Thick Body • High Surface Friction',
+                penGold: 'Deluxe Gold Executive',
+                penGoldDesc: 'Pure Metal Body • Maximum Knockout',
+                customColor: 'Custom Pen Color:',
+                powerUpgrades: 'Pen Power Upgrades:',
+                upgMass: 'Push Force / Mass:',
+                upgGrip: 'Grip & Friction:',
+                profMatches: 'Total Matches',
+                profWins: 'Wins',
+                profLosses: 'Losses',
+                profWinrate: 'Win Rate',
+                postNext: 'Next Match / Rematch',
+                postShop: 'Go to Pen Shop',
+                postMenu: 'Main Menu',
+                selected: 'Selected',
+                select: 'Select'
+            },
+            bn: {
+                sec: 'সেঃ',
+                turnP1: 'আপনার চাল: কলম টেনে নিশানা করুন',
+                turnP2: 'প্লেয়ার ২ এর চাল: কলম টেনে নিশানা করুন',
+                turnAI: 'অপোনেন্ট নিশানা করছে...',
+                loginGoogle: 'গুগল দিয়ে লগইন করুন',
+                loginFB: 'ফেসবুক দিয়ে লগইন করুন',
+                loginGuest: 'গেস্ট হিসেবে খেলুন',
+                menuTitle: 'স্কুল জীবনের কলম যুদ্ধ',
+                menuSub: 'মোড ও খেলার টেবিল নির্বাচন করুন',
+                modePvp: 'অফলাইন ২ প্লেয়ার',
+                modePvpSub: 'একই মোবাইলে ২ জন',
+                modeAI: 'বনাম কম্পিউটার',
+                modeAISub: 'স্মার্ট এআই অপোনেন্ট',
+                modeOnline: 'অনলাইন ম্যাচ',
+                modeOnlineSub: 'লাইভ রুম ম্যাচ',
+                modeTarget: 'কয়েন চ্যালেঞ্জ',
+                modeTargetSub: 'টার্গেট ট্রিকশট',
+                aiDiff: 'কম্পিউটার ডিফিকাল্টি:',
+                arenaTitle: 'খেলার মাঠ (Arena Table):',
+                arenaBench: 'স্কুলের বেঞ্চ',
+                arenaExam: 'পরীক্ষার হল',
+                arenaTeacher: 'শিক্ষকের টেবিল',
+                arenaCement: 'সিমেন্ট বেঞ্চ',
+                shopBtn: 'পেন শপ ও আপগ্রেড',
+                profileBtn: 'প্রোফাইল ও স্ট্যাটস',
+                startBtn: 'খেলা শুরু করুন',
+                shopTitle: 'কলম দোকান ও পাওয়ার আপগ্রেড',
+                penEcono: 'ইকোনো বলপেন',
+                penEconoDesc: 'হালকা ওজন • ফ্লেক্সিবল স্পিড',
+                penMatador: 'ম্যাটাডোর গ্রিপ জেল',
+                penMatadorDesc: 'রাবার গ্রিপ • ব্যালেন্সড মোমেন্টাম',
+                penParker: 'ভারী ফাউন্টেন পেন',
+                penParkerDesc: 'পিতলের নিব • মারাত্মক মোমেন্টাম',
+                penMarker: 'হাই-লাইটার মার্কার',
+                penMarkerDesc: 'মোটা বডি • হাই ফ্রিকশন',
+                penGold: 'ডিলাক্স গোল্ড এক্সিকিউটিভ',
+                penGoldDesc: 'মেটাল বডি • সর্বোচ্চ নকআউট',
+                customColor: 'কলমের রঙ কাস্টমাইজ করুন:',
+                powerUpgrades: 'কলমের পাওয়ার আপগ্রেড:',
+                upgMass: 'পুশ পাওয়ার / ওজন:',
+                upgGrip: 'বেঞ্চের গ্রিপ / ঘর্ষণ:',
+                profMatches: 'মোট খেলা ম্যাচ',
+                profWins: 'মোট বিজয়',
+                profLosses: 'পরাজয়',
+                profWinrate: 'বিজয় হার',
+                postNext: 'পরবর্তী ম্যাচ / রি-ম্যাচ',
+                postShop: 'পেন শপে যান',
+                postMenu: 'মেনু তে ফিরে যান',
+                selected: 'সিলেক্টেড',
+                select: 'বাছাই করুন'
+            }
+        };
+
+        function toggleLanguage() {
+            currentLang = currentLang === 'bn' ? 'en' : 'bn';
+            document.getElementById('lang-btn-text').innerText = currentLang === 'bn' ? 'ENG' : 'বাংলা';
+            updateLanguageDOM();
+        }
+
+        function updateLanguageDOM() {
+            const t = langData[currentLang];
+            document.getElementById('lang-sec').innerText = t.sec;
+            document.getElementById('txt-login-google').innerText = t.loginGoogle;
+            document.getElementById('txt-login-fb').innerText = t.loginFB;
+            document.getElementById('txt-login-guest').innerText = t.loginGuest;
+            document.getElementById('menu-title').innerText = t.menuTitle;
+            document.getElementById('menu-sub').innerText = t.menuSub;
+            document.getElementById('txt-mode-pvp').innerText = t.modePvp;
+            document.getElementById('txt-mode-pvp-sub').innerText = t.modePvpSub;
+            document.getElementById('txt-mode-ai').innerText = t.modeAI;
+            document.getElementById('txt-mode-ai-sub').innerText = t.modeAISub;
+            document.getElementById('txt-mode-online').innerText = t.modeOnline;
+            document.getElementById('txt-mode-online-sub').innerText = t.modeOnlineSub;
+            document.getElementById('txt-mode-target').innerText = t.modeTarget;
+            document.getElementById('txt-mode-target-sub').innerText = t.modeTargetSub;
+            document.getElementById('txt-ai-diff').innerText = t.aiDiff;
+            document.getElementById('txt-arena-title').innerText = t.arenaTitle;
+            document.getElementById('txt-arena-bench').innerText = t.arenaBench;
+            document.getElementById('txt-arena-exam').innerText = t.arenaExam;
+            document.getElementById('txt-arena-teacher').innerText = t.arenaTeacher;
+            document.getElementById('txt-arena-cement').innerText = t.arenaCement;
+            document.getElementById('txt-shop-btn').innerText = t.shopBtn;
+            document.getElementById('txt-profile-btn').innerText = t.profileBtn;
+            document.getElementById('txt-start-btn').innerText = t.startBtn;
+            document.getElementById('txt-shop-title').innerText = t.shopTitle;
+            document.getElementById('txt-pen-econo-name').innerText = t.penEcono;
+            document.getElementById('txt-pen-econo-desc').innerText = t.penEconoDesc;
+            document.getElementById('txt-pen-matador-name').innerText = t.penMatador;
+            document.getElementById('txt-pen-matador-desc').innerText = t.penMatadorDesc;
+            document.getElementById('txt-pen-parker-name').innerText = t.penParker;
+            document.getElementById('txt-pen-parker-desc').innerText = t.penParkerDesc;
+            document.getElementById('txt-pen-marker-name').innerText = t.penMarker;
+            document.getElementById('txt-pen-marker-desc').innerText = t.penMarkerDesc;
+            document.getElementById('txt-pen-gold-name').innerText = t.penGold;
+            document.getElementById('txt-pen-gold-desc').innerText = t.penGoldDesc;
+            document.getElementById('txt-custom-color').innerText = t.customColor;
+            document.getElementById('txt-power-upgrades').innerText = t.powerUpgrades;
+            document.getElementById('txt-upg-mass').innerText = t.upgMass;
+            document.getElementById('txt-upg-grip').innerText = t.upgGrip;
+            document.getElementById('txt-prof-matches').innerText = t.profMatches;
+            document.getElementById('txt-prof-wins').innerText = t.profWins;
+            document.getElementById('txt-prof-losses').innerText = t.profLosses;
+            document.getElementById('txt-prof-winrate').innerText = t.profWinrate;
+            document.getElementById('txt-post-next').innerText = t.postNext;
+            document.getElementById('txt-post-shop').innerText = t.postShop;
+            document.getElementById('txt-post-menu').innerText = t.postMenu;
+
+            updateTurnUI();
+            updateShopUI();
+        }
+
+        /* --- SOUND SYNTHESIZER --- */
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    this.ctx = new AudioContext();
+                }
+            }
+
+            playSlide(speed) {
+                if (!this.enabled || !this.ctx) return;
+                const dur = Math.min(0.18, speed * 0.015);
+                if (dur < 0.03) return;
+
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(130 + speed * 8, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(60, this.ctx.currentTime + dur);
+
+                gain.gain.setValueAtTime(Math.min(0.1, speed * 0.006), this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + dur);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + dur);
+            }
+
+            playHit(force) {
+                if (!this.enabled || !this.ctx) return;
+                const intensity = Math.min(1, force / 10);
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(300 + intensity * 500, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.08);
+
+                gain.gain.setValueAtTime(Math.min(0.4, intensity * 0.5), this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.08);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.08);
+            }
+
+            playFall() {
+                if (!this.enabled || !this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(250, this.ctx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.4);
+
+                gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.4);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+                osc.start();
+                osc.stop(this.ctx.currentTime + 0.4);
+            }
+        }
+
+        const sounds = new SoundEngine();
+
+        function toggleSound() {
+            sounds.enabled = !sounds.enabled;
+            const btn = document.getElementById('sound-btn');
+            btn.innerHTML = sounds.enabled 
+                ? '<i class="fa-solid fa-volume-high text-base"></i>' 
+                : '<i class="fa-solid fa-volume-xmark text-base text-slate-500"></i>';
+        }
+
+        /* --- PLAYER SAVED DATA & AUTH --- */
+        let playerData = {
+            name: 'Guest Fighter',
+            coins: 200,
+            xp: 0,
+            level: 1,
+            matchesPlayed: 0,
+            wins: 0,
+            losses: 0,
+            unlockedPens: ['econo', 'matador'],
+            equippedPen: 'econo',
+            penColor: '#ef4444',
+            massLvl: 1,
+            gripLvl: 1,
+            selectedArena: 'bench'
+        };
+
+        function guestLogin(nameStr) {
+            playerData.name = nameStr || 'Guest Student';
+            window.currentUser = { displayName: playerData.name, photoURL: 'https://placehold.co/100x100/d97706/ffffff?text=Pen' };
+            onAuthSuccess();
+        }
+
+        window.onAuthSuccess = function() {
+            if (window.currentUser) {
+                playerData.name = window.currentUser.displayName;
+                document.getElementById('hud-avatar').src = window.currentUser.photoURL;
+                document.getElementById('prof-avatar').src = window.currentUser.photoURL;
+            }
+            document.getElementById('auth-modal').classList.add('hidden');
+            loadPlayerData();
+            openMenu();
+        };
+
+        function loadPlayerData() {
+            const saved = localStorage.getItem('pen_fight_data_' + (window.currentUser?.uid || 'guest'));
+            if (saved) {
+                try {
+                    playerData = { ...playerData, ...JSON.parse(saved) };
+                } catch(e) {}
+            }
+            updateHUD();
+        }
+
+        function savePlayerData() {
+            localStorage.setItem('pen_fight_data_' + (window.currentUser?.uid || 'guest'), JSON.stringify(playerData));
+            updateHUD();
+        }
+
+        function updateHUD() {
+            document.getElementById('hud-name').innerText = playerData.name;
+            document.getElementById('hud-coins').innerText = playerData.coins;
+
+            // Profile Modal
+            document.getElementById('profile-name').innerText = playerData.name;
+            document.getElementById('profile-rank').innerText = `Rank: Bench Fighter (Lvl ${playerData.level})`;
+            document.getElementById('stat-matches').innerText = playerData.matchesPlayed;
+            document.getElementById('stat-wins').innerText = playerData.wins;
+            document.getElementById('stat-losses').innerText = playerData.losses;
+
+            const winRate = playerData.matchesPlayed > 0 ? Math.round((playerData.wins / playerData.matchesPlayed) * 100) : 0;
+            document.getElementById('stat-winrate').innerText = `${winRate}%`;
+
+            document.getElementById('lvl-mass').innerText = playerData.massLvl;
+            document.getElementById('lvl-grip').innerText = playerData.gripLvl;
+        }
+
+        /* --- GAME ENGINE & REALISTIC PEN SPECS --- */
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Detailed Specs for Realistic Physics (Max speed drastically reduced for tactical play)
+        const PEN_SPECS = {
+            econo: { name: 'Classic Ball Pen', mass: 1.0, friction: 0.965, bounce: 0.6, length: 80, width: 12, cost: 0 },
+            matador: { name: 'Grip Gel Pen', mass: 1.3, friction: 0.958, bounce: 0.55, length: 85, width: 13, cost: 0 },
+            parker: { name: 'Heavy Fountain Pen', mass: 2.2, friction: 0.948, bounce: 0.45, length: 90, width: 15, cost: 250 },
+            marker: { name: 'High-Lighter Marker', mass: 1.8, friction: 0.935, bounce: 0.4, length: 82, width: 18, cost: 400 },
+            gold: { name: 'Deluxe Gold Executive', mass: 2.8, friction: 0.942, bounce: 0.35, length: 95, width: 16, cost: 750 }
+        };
+
+        let currentGameMode = 'pvp';
+        let aiDifficulty = 'easy';
+        let currentTurn = 1;
+        let p1Score = 0;
+        let p2Score = 0;
+        let gameActive = false;
+        let isSimulating = false;
+
+        let turnTimerVal = 15;
+        let turnTimerInterval = null;
+
+        let desk = { x: 0, y: 0, w: 0, h: 0 };
+        let pens = [];
+
+        let isDragging = false;
+        let dragStartPos = { x: 0, y: 0 };
+        let currentMousePos = { x: 0, y: 0 };
+        let activePen = null;
+
+        /* --- CLASS REALISTIC PEN RENDERING --- */
+        class Pen {
+            constructor(id, x, y, angle, typeKey, bodyColor) {
+                this.id = id;
+                this.x = x;
+                this.y = y;
+                this.vx = 0;
+                this.vy = 0;
+                this.angle = angle;
+                this.vRot = 0;
+                
+                const spec = PEN_SPECS[typeKey] || PEN_SPECS['econo'];
+                this.typeKey = typeKey;
+
+                // Player upgrades
+                const extraMass = (id === 1) ? (playerData.massLvl - 1) * 0.15 : 0;
+                const extraGrip = (id === 1) ? (playerData.gripLvl - 1) * 0.003 : 0;
+
+                this.mass = spec.mass + extraMass;
+                // Higher realistic surface friction
+                this.friction = Math.min(0.97, spec.friction + extraGrip);
+                this.bounce = spec.bounce;
+                this.color = bodyColor || '#ef4444';
+                this.length = spec.length;
+                this.width = spec.width;
+                this.isFallen = false;
+                this.opacity = 1.0;
+            }
+
+            update() {
+                if (this.isFallen) {
+                    this.opacity -= 0.04;
+                    return;
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+                this.angle += this.vRot;
+
+                // Heavy realistic friction deceleration
+                this.vx *= this.friction;
+                this.vy *= this.friction;
+                this.vRot *= this.friction;
+
+                const speed = Math.hypot(this.vx, this.vy);
+                if (speed > 0.8) sounds.playSlide(speed);
+
+                if (Math.abs(this.vx) < 0.02) this.vx = 0;
+                if (Math.abs(this.vy) < 0.02) this.vy = 0;
+                if (Math.abs(this.vRot) < 0.002) this.vRot = 0;
+
+                // Desk boundary check
+                if (this.x < desk.x || this.x > desk.x + desk.w || this.y < desk.y || this.y > desk.y + desk.h) {
+                    this.isFallen = true;
+                    sounds.playFall();
+                }
+            }
+
+            draw(context) {
+                if (this.opacity <= 0) return;
+
+                context.save();
+                context.globalAlpha = Math.max(0, this.opacity);
+                context.translate(this.x, this.y);
+                context.rotate(this.angle);
+
+                // 3D Shadow
+                context.shadowColor = 'rgba(0, 0, 0, 0.55)';
+                context.shadowBlur = 10;
+                context.shadowOffsetX = 4;
+                context.shadowOffsetY = 6;
+
+                const halfL = this.length / 2;
+                const halfW = this.width / 2;
+
+                if (this.typeKey === 'marker') {
+                    // Thick Marker Body
+                    context.fillStyle = '#1e293b';
+                    context.fillRect(-halfL, -halfW, this.length - 20, this.width);
+                    context.fillStyle = this.color;
+                    context.fillRect(-halfL + 5, -halfW + 2, this.length - 30, this.width - 4);
+
+                    // Marker Chisel Tip
+                    context.fillStyle = '#0f172a';
+                    context.beginPath();
+                    context.moveTo(halfL - 20, -halfW);
+                    context.lineTo(halfL - 5, -halfW + 3);
+                    context.lineTo(halfL - 5, halfW - 3);
+                    context.lineTo(halfL - 20, halfW);
+                    context.fill();
+                } 
+                else if (this.typeKey === 'parker' || this.typeKey === 'gold') {
+                    // Executive / Fountain Pen metallic finish
+                    const bodyGrad = context.createLinearGradient(0, -halfW, 0, halfW);
+                    if (this.typeKey === 'gold') {
+                        bodyGrad.addColorStop(0, '#fef08a');
+                        bodyGrad.addColorStop(0.5, '#eab308');
+                        bodyGrad.addColorStop(1, '#854d0e');
+                    } else {
+                        bodyGrad.addColorStop(0, '#e2e8f0');
+                        bodyGrad.addColorStop(0.5, '#64748b');
+                        bodyGrad.addColorStop(1, '#1e293b');
+                    }
+
+                    context.fillStyle = bodyGrad;
+                    context.beginPath();
+                    context.roundRect(-halfL, -halfW, this.length - 16, this.width, 4);
+                    context.fill();
+
+                    // Gold / Metallic Clip
+                    context.fillStyle = '#f59e0b';
+                    context.fillRect(-halfL + 4, -halfW - 2, 22, 3);
+
+                    // Fountain Nib
+                    context.fillStyle = '#fbbf24';
+                    context.beginPath();
+                    context.moveTo(halfL - 16, -halfW + 2);
+                    context.lineTo(halfL, 0);
+                    context.lineTo(halfL - 16, halfW - 2);
+                    context.fill();
+                } 
+                else {
+                    // Standard Ballpoint & Gel Pen Translucent Tube Render
+                    const grad = context.createLinearGradient(0, -halfW, 0, halfW);
+                    grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+                    grad.addColorStop(0.3, this.color);
+                    grad.addColorStop(0.85, '#0f172a');
+
+                    context.fillStyle = grad;
+                    context.beginPath();
+                    context.roundRect(-halfL, -halfW, this.length - 18, this.width, 2);
+                    context.fill();
+
+                    // Ink tube line inside
+                    context.fillStyle = '#000000';
+                    context.fillRect(-halfL + 10, -1, this.length - 35, 2);
+
+                    // Rubber Grip Section
+                    if (this.typeKey === 'matador') {
+                        context.fillStyle = '#1e293b';
+                        context.fillRect(-halfL + 25, -halfW - 0.5, 18, this.width + 1);
+                    }
+
+                    // Metallic Clip
+                    context.fillStyle = '#cbd5e1';
+                    context.fillRect(-halfL + 2, -halfW - 1, 12, 2);
+
+                    // Transparent Cone Tip
+                    context.fillStyle = '#94a3b8';
+                    context.beginPath();
+                    context.moveTo(halfL - 18, -halfW + 1);
+                    context.lineTo(halfL - 3, -1);
+                    context.lineTo(halfL - 3, 1);
+                    context.lineTo(halfL - 18, halfW - 1);
+                    context.fill();
+
+                    // Ball Tip
+                    context.fillStyle = '#f59e0b';
+                    context.fillRect(halfL - 3, -1, 3, 2);
+                }
+
+                context.restore();
+            }
+        }
+
+        /* --- DESK ARENAS RENDER --- */
+        function resizeCanvas() {
+            const container = document.getElementById('game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+
+            desk.w = Math.min(canvas.width - 24, 920);
+            desk.h = Math.min(canvas.height - 90, 560);
+            desk.x = (canvas.width - desk.w) / 2;
+            desk.y = (canvas.height - desk.h) / 2 + 10;
+        }
+
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+            if (pens.length > 0) resetPenPositions();
+        });
+
+        function drawDeskArena() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const arena = playerData.selectedArena;
+
+            ctx.save();
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.9)';
+            ctx.shadowBlur = 30;
+            ctx.shadowOffsetY = 12;
+
+            if (arena === 'exam') {
+                const grad = ctx.createLinearGradient(desk.x, desk.y, desk.x + desk.w, desk.y + desk.h);
+                grad.addColorStop(0, '#3e1705');
+                grad.addColorStop(1, '#130a03');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.roundRect(desk.x, desk.y, desk.w, desk.h, 12);
+                ctx.fill();
+            } else if (arena === 'teacher') {
+                const grad = ctx.createLinearGradient(desk.x, desk.y, desk.x + desk.w, desk.y + desk.h);
+                grad.addColorStop(0, '#270c03');
+                grad.addColorStop(1, '#080201');
+                ctx.fillStyle = grad;
+                ctx.beginPath();
+                ctx.roundRect(desk.x, desk.y, desk.w, desk.h, 12);
+                ctx.fill();
+            } else if (arena === 'cement') {
+                ctx.fillStyle = '#334155';
+                ctx.beginPath();
+                ctx.roundRect(desk.x, desk.y, desk.w, desk.h, 8);
+                ctx.fill();
+            } else {
+                // Classic School Bench
+                const woodGrad = ctx.createLinearGradient(desk.x, desk.y, desk.x + desk.w, desk.y + desk.h);
+                woodGrad.addColorStop(0, '#78350f');
+                woodGrad.addColorStop(0.5, '#92400e');
+                woodGrad.addColorStop(1, '#451a03');
+
+                ctx.fillStyle = woodGrad;
+                ctx.beginPath();
+                ctx.roundRect(desk.x, desk.y, desk.w, desk.h, 12);
+                ctx.fill();
+
+                // Notebook Overlay Page
+                const px = desk.x + 30;
+                const py = desk.y + 30;
+                const pw = desk.w - 60;
+                const ph = desk.h - 60;
+
+                ctx.fillStyle = '#fffbeb';
+                ctx.beginPath();
+                ctx.roundRect(px, py, pw, ph, 6);
+                ctx.fill();
+
+                // Rule lines
+                ctx.strokeStyle = '#e2e8f0';
+                ctx.lineWidth = 1;
+                for (let y = py + 24; y < py + ph - 10; y += 24) {
+                    ctx.beginPath();
+                    ctx.moveTo(px + 10, y);
+                    ctx.lineTo(px + pw - 10, y);
+                    ctx.stroke();
+                }
+            }
+
+            ctx.strokeStyle = '#b45309';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        /* --- GAME LOGIC & MATCH TIMERS --- */
+        function initGame() {
+            resizeCanvas();
+            p1Score = 0;
+            p2Score = 0;
+            updateScoreUI();
+            resetMatch();
+        }
+
+        function resetMatch() {
+            document.getElementById('victory-modal').classList.add('hidden');
+            currentTurn = 1;
+            gameActive = true;
+            resetPenPositions();
+            updateTurnUI();
+            startTurnTimer();
+        }
+
+        function resetPenPositions() {
+            pens = [];
+            const centerY = desk.y + desk.h / 2;
+
+            const p1Pen = new Pen(1, desk.x + 120, centerY, 0, playerData.equippedPen, playerData.penColor);
+            pens.push(p1Pen);
+
+            const p2Type = currentGameMode === 'ai' ? 'matador' : playerData.equippedPen;
+            const p2Pen = new Pen(2, desk.x + desk.w - 120, centerY, Math.PI, p2Type, '#3b82f6');
+            pens.push(p2Pen);
+        }
+
+        function startTurnTimer() {
+            clearInterval(turnTimerInterval);
+            turnTimerVal = 15;
+            document.getElementById('turn-timer').innerText = turnTimerVal;
+
+            turnTimerInterval = setInterval(() => {
+                if (!gameActive || isSimulating) return;
+
+                turnTimerVal--;
+                document.getElementById('turn-timer').innerText = turnTimerVal;
+
+                if (turnTimerVal <= 0) {
+                    clearInterval(turnTimerInterval);
+                    currentTurn = currentTurn === 1 ? 2 : 1;
+                    updateTurnUI();
+                    if (currentGameMode === 'ai' && currentTurn === 2) {
+                        setTimeout(executeAITurn, 500);
+                    } else {
+                        startTurnTimer();
+                    }
+                }
+            }, 1000);
+        }
+
+        /* --- PHYSICS & COLLISION CALCULATIONS --- */
+        function checkCollisions() {
+            for (let i = 0; i < pens.length; i++) {
+                for (let j = i + 1; j < pens.length; j++) {
+                    const p1 = pens[i];
+                    const p2 = pens[j];
+
+                    if (p1.isFallen || p2.isFallen) continue;
+
+                    const dx = p2.x - p1.x;
+                    const dy = p2.y - p1.y;
+                    const dist = Math.hypot(dx, dy);
+                    const minDist = (p1.length + p2.length) * 0.32;
+
+                    if (dist < minDist && dist > 0) {
+                        const angle = Math.atan2(dy, dx);
+                        const cos = Math.cos(angle);
+                        const sin = Math.sin(angle);
+
+                        const overlap = minDist - dist;
+                        p1.x -= cos * overlap * 0.5;
+                        p1.y -= sin * overlap * 0.5;
+                        p2.x += cos * overlap * 0.5;
+                        p2.y += sin * overlap * 0.5;
+
+                        const nx = dx / dist;
+                        const ny = dy / dist;
+
+                        const kx = p1.vx - p2.vx;
+                        const ky = p1.vy - p2.vy;
+                        const p = 1.8 * (nx * kx + ny * ky) / (p1.mass + p2.mass);
+
+                        p1.vx -= p * p2.mass * nx;
+                        p1.vy -= p * p2.mass * ny;
+                        p2.vx += p * p1.mass * nx;
+                        p2.vy += p * p1.mass * ny;
+
+                        p1.vRot = (Math.random() - 0.5) * 0.15;
+                        p2.vRot = (Math.random() - 0.5) * 0.15;
+
+                        sounds.playHit(Math.hypot(p1.vx - p2.vx, p1.vy - p2.vy));
+                    }
+                }
+            }
+        }
+
+        /* --- MAIN ANIMATION LOOP --- */
+        function gameLoop() {
+            drawDeskArena();
+
+            let moving = false;
+
+            pens.forEach(p => {
+                p.update();
+                p.draw(ctx);
+                if (Math.hypot(p.vx, p.vy) > 0.05 || Math.abs(p.vRot) > 0.005) moving = true;
+            });
+
+            if (gameActive) {
+                checkCollisions();
+
+                if (isSimulating && !moving) {
+                    isSimulating = false;
+                    evaluateTurnResult();
+                }
+
+                if (isDragging && activePen) {
+                    drawAimIndicator();
+                }
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function drawAimIndicator() {
+            const dx = dragStartPos.x - currentMousePos.x;
+            const dy = dragStartPos.y - currentMousePos.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist < 10) return;
+
+            // Strictly capped pull distance for realistic slow tactical shot
+            const maxPull = 120;
+            const pullPower = Math.min(dist, maxPull);
+            const angle = Math.atan2(dy, dx);
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(activePen.x, activePen.y);
+            ctx.lineTo(activePen.x + Math.cos(angle) * pullPower * 1.2, activePen.y + Math.sin(angle) * pullPower * 1.2);
+            ctx.strokeStyle = activePen.id === 1 ? 'rgba(239, 68, 68, 0.85)' : 'rgba(59, 130, 246, 0.85)';
+            ctx.lineWidth = 3.5;
+            ctx.setLineDash([6, 5]);
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
+        /* --- DRAG CONTROLS --- */
+        function getPointerPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: clientX - rect.left, y: clientY - rect.top };
+        }
+
+        function onPointerDown(e) {
+            if (!gameActive || isSimulating) return;
+            if ((currentGameMode === 'ai' || currentGameMode === 'online') && currentTurn === 2) return;
+
+            sounds.init();
+
+            const pos = getPointerPos(e);
+            const currentPen = pens.find(p => p.id === currentTurn && !p.isFallen);
+
+            if (currentPen) {
+                const dist = Math.hypot(pos.x - currentPen.x, pos.y - currentPen.y);
+                if (dist < currentPen.length) {
+                    isDragging = true;
+                    activePen = currentPen;
+                    dragStartPos = pos;
+                    currentMousePos = pos;
+                }
+            }
+        }
+
+        function onPointerMove(e) {
+            if (!isDragging) return;
+            currentMousePos = getPointerPos(e);
+        }
+
+        function onPointerUp() {
+            if (!isDragging || !activePen) return;
+
+            const dx = dragStartPos.x - currentMousePos.x;
+            const dy = dragStartPos.y - currentMousePos.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist > 15) {
+                // Reduced velocity multiplier for heavy realistic movement
+                const maxPull = 120;
+                const power = Math.min(dist, maxPull) * 0.08 / activePen.mass;
+                const angle = Math.atan2(dy, dx);
+
+                activePen.vx = Math.cos(angle) * power;
+                activePen.vy = Math.sin(angle) * power;
+                activePen.angle = angle;
+                activePen.vRot = (Math.random() - 0.5) * 0.1;
+
+                isSimulating = true;
+                clearInterval(turnTimerInterval);
+            }
+
+            isDragging = false;
+            activePen = null;
+        }
+
+        canvas.addEventListener('mousedown', onPointerDown);
+        canvas.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+
+        canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+        canvas.addEventListener('touchmove', onPointerMove, { passive: true });
+        window.addEventListener('touchend', onPointerUp);
+
+        /* --- TURN EVALUATION & AI --- */
+        function evaluateTurnResult() {
+            const p1 = pens.find(p => p.id === 1);
+            const p2 = pens.find(p => p.id === 2);
+
+            if (p1 && p1.isFallen) {
+                p2Score++;
+                updateScoreUI();
+                awardMatchRewards(20, 30, 'Opponent Won The Match!', false);
+                return;
+            } else if (p2 && p2.isFallen) {
+                p1Score++;
+                updateScoreUI();
+                awardMatchRewards(80, 120, 'You Won The Match!', true);
+                return;
+            }
+
+            currentTurn = currentTurn === 1 ? 2 : 1;
+            updateTurnUI();
+            startTurnTimer();
+
+            if ((currentGameMode === 'ai' || currentGameMode === 'online') && currentTurn === 2) {
+                setTimeout(executeAITurn, 600);
+            }
+        }
+
+        function executeAITurn() {
+            const aiPen = pens.find(p => p.id === 2 && !p.isFallen);
+            const playerPen = pens.find(p => p.id === 1 && !p.isFallen);
+
+            if (!aiPen || !playerPen) return;
+
+            const dx = playerPen.x - aiPen.x;
+            const dy = playerPen.y - aiPen.y;
+
+            let errorFactor = 0.25;
+            if (aiDifficulty === 'medium') errorFactor = 0.12;
+            if (aiDifficulty === 'hard') errorFactor = 0.03;
+
+            const angleErr = (Math.random() - 0.5) * errorFactor;
+            const angle = Math.atan2(dy, dx) + angleErr;
+
+            const dist = Math.hypot(dx, dy);
+            const power = Math.min(dist * 0.07, 7.5) / aiPen.mass;
+
+            aiPen.vx = Math.cos(angle) * power;
+            aiPen.vy = Math.sin(angle) * power;
+            aiPen.angle = angle;
+            aiPen.vRot = (Math.random() - 0.5) * 0.1;
+
+            isSimulating = true;
+            clearInterval(turnTimerInterval);
+        }
+
+        function awardMatchRewards(coins, xp, msg, isWin = true) {
+            playerData.matchesPlayed++;
+            if (isWin) playerData.wins++;
+            else playerData.losses++;
+
+            playerData.coins += coins;
+            playerData.xp += xp;
+
+            if (playerData.xp >= playerData.level * 200) {
+                playerData.level++;
+            }
+
+            savePlayerData();
+
+            document.getElementById('reward-coins').innerText = `+${coins} Coins`;
+            document.getElementById('reward-xp').innerText = `+${xp} XP`;
+            showVictory(msg);
+        }
+
+        /* --- POST MATCH ACTIONS & MODALS --- */
+        function openShopFromPostMatch() {
+            document.getElementById('victory-modal').classList.add('hidden');
+            openShopModal();
+        }
+
+        function openMenuFromPostMatch() {
+            document.getElementById('victory-modal').classList.add('hidden');
+            openMenu();
+        }
+
+        function selectMode(mode) {
+            currentGameMode = mode;
+            document.querySelectorAll('.mode-select-btn').forEach(btn => {
+                btn.classList.remove('bg-amber-500/20', 'border-amber-500');
+                btn.classList.add('bg-slate-900', 'border-slate-800');
+            });
+
+            const activeBtn = document.getElementById(`mode-btn-${mode}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-slate-900', 'border-slate-800');
+                activeBtn.classList.add('bg-amber-500/20', 'border-amber-500');
+            }
+
+            const aiContainer = document.getElementById('ai-diff-container');
+            if (mode === 'ai') aiContainer.classList.remove('hidden');
+            else aiContainer.classList.add('hidden');
+        }
+
+        function setAIDifficulty(diff) {
+            aiDifficulty = diff;
+            document.querySelectorAll('.diff-btn').forEach(btn => {
+                btn.classList.remove('bg-amber-500/20', 'border-amber-500', 'text-amber-200');
+                btn.classList.add('bg-slate-900', 'border-slate-800', 'text-slate-400');
+            });
+            const active = document.getElementById(`diff-${diff}`);
+            active.classList.add('bg-amber-500/20', 'border-amber-500', 'text-amber-200');
+        }
+
+        function selectArena(arenaKey) {
+            playerData.selectedArena = arenaKey;
+            savePlayerData();
+
+            document.querySelectorAll('.arena-select-btn').forEach(btn => {
+                btn.classList.remove('border-2', 'border-amber-500', 'bg-amber-500/20', 'text-amber-200');
+                btn.classList.add('border', 'border-slate-800', 'bg-slate-900', 'text-slate-400');
+            });
+
+            const active = document.getElementById(`arena-btn-${arenaKey}`);
+            if (active) {
+                active.classList.remove('border', 'border-slate-800', 'bg-slate-900', 'text-slate-400');
+                active.classList.add('border-2', 'border-amber-500', 'bg-amber-500/20', 'text-amber-200');
+            }
+        }
+
+        function openShopModal() {
+            updateShopUI();
+            document.getElementById('shop-modal').classList.remove('hidden');
+        }
+
+        function closeShopModal() {
+            document.getElementById('shop-modal').classList.add('hidden');
+        }
+
+        function updateShopUI() {
+            const t = langData[currentLang];
+            Object.keys(PEN_SPECS).forEach(key => {
+                const btn = document.getElementById(`shop-btn-${key}`);
+                if (!btn) return;
+
+                if (playerData.equippedPen === key) {
+                    btn.innerText = t.selected;
+                    btn.className = 'px-3.5 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-extrabold text-xs';
+                } else if (playerData.unlockedPens.includes(key)) {
+                    btn.innerText = t.select;
+                    btn.className = 'px-3.5 py-1.5 rounded-lg bg-amber-500/20 border border-amber-500 text-amber-300 font-extrabold text-xs';
+                } else {
+                    btn.innerHTML = `<i class="fa-solid fa-coins text-amber-400"></i> ${PEN_SPECS[key].cost}`;
+                    btn.className = 'px-3.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 font-extrabold text-xs flex items-center gap-1';
+                }
+            });
+        }
+
+        function buyOrSelectPen(penKey) {
+            if (playerData.unlockedPens.includes(penKey)) {
+                playerData.equippedPen = penKey;
+            } else {
+                const cost = PEN_SPECS[penKey].cost;
+                if (playerData.coins >= cost) {
+                    playerData.coins -= cost;
+                    playerData.unlockedPens.push(penKey);
+                    playerData.equippedPen = penKey;
+                } else {
+                    alert(currentLang === 'bn' ? 'পর্যাপ্ত কয়েন নেই!' : 'Not enough coins!');
+                }
+            }
+            savePlayerData();
+            updateShopUI();
+        }
+
+        function setPenColor(colorHex) {
+            playerData.penColor = colorHex;
+            savePlayerData();
+        }
+
+        function upgradeStat(statType) {
+            const cost = 100;
+            if (playerData.coins >= cost) {
+                playerData.coins -= cost;
+                if (statType === 'mass') playerData.massLvl++;
+                if (statType === 'grip') playerData.gripLvl++;
+                savePlayerData();
+            } else {
+                alert(currentLang === 'bn' ? 'পর্যাপ্ত কয়েন নেই!' : 'Not enough coins!');
+            }
+        }
+
+        function openProfileModal() {
+            updateHUD();
+            document.getElementById('profile-modal').classList.remove('hidden');
+        }
+
+        function closeProfileModal() {
+            document.getElementById('profile-modal').classList.add('hidden');
+        }
+
+        function updateTurnUI() {
+            const turnDot = document.getElementById('turn-indicator-dot');
+            const turnText = document.getElementById('turn-text');
+            const p1Box = document.getElementById('p1-score-box');
+            const p2Box = document.getElementById('p2-score-box');
+            const t = langData[currentLang];
+
+            if (currentTurn === 1) {
+                turnDot.className = 'w-3 h-3 rounded-full bg-red-500 animate-pulse';
+                turnText.innerText = t.turnP1;
+                p1Box.classList.remove('opacity-50');
+                p2Box.classList.add('opacity-50');
+            } else {
+                turnDot.className = 'w-3 h-3 rounded-full bg-blue-500 animate-pulse';
+                turnText.innerText = (currentGameMode === 'ai' || currentGameMode === 'online') ? t.turnAI : t.turnP2;
+                p2Box.classList.remove('opacity-50');
+                p1Box.classList.add('opacity-50');
+            }
+        }
+
+        function updateScoreUI() {
+            document.getElementById('p1-score').innerText = p1Score;
+            document.getElementById('p2-score').innerText = p2Score;
+        }
+
+        function openMenu() {
+            document.getElementById('menu-modal').classList.remove('hidden');
+            document.getElementById('close-menu-btn').classList.remove('hidden');
+            gameActive = false;
+            clearInterval(turnTimerInterval);
+        }
+
+        function closeMenu() {
+            document.getElementById('menu-modal').classList.add('hidden');
+            gameActive = true;
+            startTurnTimer();
+        }
+
+        function startGame() {
+            document.getElementById('menu-modal').classList.add('hidden');
+            initGame();
+        }
+
+        function showVictory(msg) {
+            gameActive = false;
+            clearInterval(turnTimerInterval);
+            document.getElementById('victory-msg').innerText = msg;
+            document.getElementById('victory-modal').classList.remove('hidden');
+        }
+
+        window.onload = () => {
+            updateLanguageDOM();
+            resizeCanvas();
+            requestAnimationFrame(gameLoop);
+        };
+    </script>
+</body>
+</html>
